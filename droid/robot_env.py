@@ -30,11 +30,14 @@ class RobotEnv(gym.Env):
         self.DoF = 7 if ("cartesian" in action_space) else 8
         self.control_hz = 15
 
+        print(f"NUC IP: {nuc_ip}")
+
         if nuc_ip is None:
             from franka.robot import FrankaRobot
 
             self._robot = FrankaRobot()
         else:
+            print(f"Connecting to NUCRobot at {nuc_ip}")
             self._robot = ServerInterface(ip_address=nuc_ip)
 
         # Create Cameras
@@ -46,21 +49,35 @@ class RobotEnv(gym.Env):
         if do_reset:
             self.reset()
 
-    def step(self, action):
+    def step(self, action, action_space=None, gripper_action_space=None):
+        # Use provided action spaces or fall back to defaults
+        current_action_space = action_space if action_space is not None else self.action_space
+        current_gripper_action_space = gripper_action_space if gripper_action_space is not None else self.gripper_action_space
+
+        # Calculate expected DoF for the current action space
+        expected_dof = 7 if ("cartesian" in current_action_space) else 8
+
         # Check Action
-        assert len(action) == self.DoF
-        if self.check_action_range:
-            assert (action.max() <= 1) and (action.min() >= -1)
+        assert len(action) == expected_dof, f"Expected {expected_dof} dimensions for {current_action_space}, got {len(action)}"
+
+        # Check action range for velocity commands
+        check_range = "velocity" in current_action_space
+        if check_range:
+            assert (action.max() <= 1) and (action.min() >= -1), "Velocity actions must be in range [-1, 1]"
 
         # Update Robot
         action_info = self.update_robot(
             action,
-            action_space=self.action_space,
-            gripper_action_space=self.gripper_action_space,
+            action_space=current_action_space,
+            gripper_action_space=current_gripper_action_space,
         )
 
+        observation = self.get_observation()
+
+        observation["action_info"] = action_info
+
         # Return Action Info
-        return action_info
+        return observation
 
     def reset(self, randomize=False):
         self._robot.update_gripper(0, velocity=False, blocking=True)
@@ -71,6 +88,8 @@ class RobotEnv(gym.Env):
             noise = None
 
         self._robot.update_joints(self.reset_joints, velocity=False, blocking=True, cartesian_noise=noise)
+
+        return self.get_observation()
 
     def update_robot(self, action, action_space="cartesian_velocity", gripper_action_space=None, blocking=False):
         action_info = self._robot.update_command(

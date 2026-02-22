@@ -161,8 +161,14 @@ class FrankaRobot:
         pos, quat = self._robot.robot_model.forward_kinematics(torch.Tensor(robot_state.joint_positions))
         cartesian_position = pos.tolist() + quat_to_euler(quat.numpy()).tolist()
 
+        # Compute cartesian velocity from joint velocities via Jacobian
+        jacobian = self._robot.robot_model.compute_jacobian(torch.Tensor(robot_state.joint_positions))
+        joint_vel = torch.Tensor(robot_state.joint_velocities)
+        cartesian_velocity = (jacobian @ joint_vel).tolist()  # 6D: [lin_vel(3), ang_vel(3)]
+
         state_dict = {
             "cartesian_position": cartesian_position,
+            "cartesian_velocity": cartesian_velocity,
             "gripper_position": gripper_position,
             "joint_positions": list(robot_state.joint_positions),
             "joint_velocities": list(robot_state.joint_velocities),
@@ -209,7 +215,7 @@ class FrankaRobot:
             action_dict["gripper_position"] = float(np.clip(action[-1], 0, 1))
             gripper_delta = action_dict["gripper_position"] - robot_state["gripper_position"]
             gripper_velocity = self._ik_solver.gripper_delta_to_velocity(gripper_delta)
-            action_dict["gripper_delta"] = gripper_velocity
+            action_dict["gripper_velocity"] = gripper_velocity
 
         if "cartesian" in action_space:
             if velocity:
@@ -231,7 +237,6 @@ class FrankaRobot:
             action_dict["joint_position"] = (joint_delta + np.array(robot_state["joint_positions"])).tolist()
 
         if "joint" in action_space:
-            # NOTE: Joint to Cartesian has undefined dynamics due to IK
             if velocity:
                 action_dict["joint_velocity"] = action[:-1]
                 joint_delta = self._ik_solver.joint_velocity_to_delta(action[:-1])
@@ -241,5 +246,13 @@ class FrankaRobot:
                 joint_delta = np.array(action[:-1]) - np.array(robot_state["joint_positions"])
                 joint_velocity = self._ik_solver.joint_delta_to_velocity(joint_delta)
                 action_dict["joint_velocity"] = joint_velocity.tolist()
+
+            # Compute cartesian equivalents via FK (always well-defined)
+            predicted_pos, predicted_quat = self._robot.robot_model.forward_kinematics(
+                torch.Tensor(action_dict["joint_position"])
+            )
+            action_dict["cartesian_position"] = predicted_pos.tolist() + quat_to_euler(predicted_quat.numpy()).tolist()
+            cartesian_delta = pose_diff(action_dict["cartesian_position"], robot_state["cartesian_position"])
+            action_dict["cartesian_velocity"] = self._ik_solver.cartesian_delta_to_velocity(cartesian_delta).tolist()
 
         return action_dict
