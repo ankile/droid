@@ -14,6 +14,16 @@ from droid.misc.subprocess_utils import run_terminal_command, run_threaded_comma
 from droid.misc.transformations import add_poses, euler_to_quat, pose_diff, quat_to_euler
 from droid.robot_ik.robot_ik_solver import RobotIKSolver
 
+# Stiffer Cartesian impedance gains for dynamic motions (e.g. throwing).
+# polymetis franka_hardware.yaml defaults are Kx=[400,400,400,15,15,15],
+# Kxd=[37,37,37,2,2,2]; a soft arm lags fast targets and never reaches its
+# velocity limit. These ~3x the translational / ~4x the rotational stiffness so
+# the arm actually tracks aggressive teleop targets. Passed to
+# RobotInterface.start_cartesian_impedance(Kx, Kxd). Tune up for more snap;
+# revert by switching back to the `main` branch.
+CARTESIAN_IMPEDANCE_KX = [1200.0, 1200.0, 1200.0, 60.0, 60.0, 60.0]
+CARTESIAN_IMPEDANCE_KXD = [50.0, 50.0, 50.0, 5.0, 5.0, 5.0]
+
 
 class FrankaRobot:
     def launch_controller(self):
@@ -86,12 +96,18 @@ class FrankaRobot:
         def helper_non_blocking():
             if not self._robot.is_running_policy():
                 self._controller_not_loaded = True
-                self._robot.start_cartesian_impedance()
+                self._robot.start_cartesian_impedance(
+                    Kx=torch.Tensor(CARTESIAN_IMPEDANCE_KX),
+                    Kxd=torch.Tensor(CARTESIAN_IMPEDANCE_KXD),
+                )
                 timeout = time.time() + 5
                 while not self._robot.is_running_policy():
                     time.sleep(0.01)
                     if time.time() > timeout:
-                        self._robot.start_cartesian_impedance()
+                        self._robot.start_cartesian_impedance(
+                            Kx=torch.Tensor(CARTESIAN_IMPEDANCE_KX),
+                            Kxd=torch.Tensor(CARTESIAN_IMPEDANCE_KXD),
+                        )
                         timeout = time.time() + 5
 
                 self._controller_not_loaded = False
@@ -109,7 +125,10 @@ class FrankaRobot:
             except grpc.RpcError:
                 pass
 
-            self._robot.start_cartesian_impedance()
+            self._robot.start_cartesian_impedance(
+                Kx=torch.Tensor(CARTESIAN_IMPEDANCE_KX),
+                Kxd=torch.Tensor(CARTESIAN_IMPEDANCE_KXD),
+            )
         else:
             if not self._controller_not_loaded:
                 run_threaded_command(helper_non_blocking)
@@ -120,7 +139,7 @@ class FrankaRobot:
             command = gripper_delta + self.get_gripper_position()
 
         command = float(np.clip(command, 0, 1))
-        self._gripper.goto(width=self._max_gripper_width * (1 - command), speed=0.05, force=0.1, blocking=blocking)
+        self._gripper.goto(width=self._max_gripper_width * (1 - command), speed=0.10, force=0.1, blocking=blocking)
 
     def add_noise_to_joints(self, original_joints, cartesian_noise):
         original_joints = torch.Tensor(original_joints)
