@@ -7,11 +7,11 @@ from droid.robot_ik.arm import FrankaArm
 
 class RobotIKSolver:
     def __init__(self):
-        self.relative_max_joint_delta = np.array([0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2])
+        self.relative_max_joint_delta = np.array([0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3])
         self.max_joint_delta = self.relative_max_joint_delta.max()
         self.max_gripper_delta = 0.25
-        self.max_lin_delta = 0.075
-        self.max_rot_delta = 0.15
+        self.max_lin_delta = 0.11
+        self.max_rot_delta = 0.22
         self.control_hz = 15
 
         self._arm = FrankaArm()
