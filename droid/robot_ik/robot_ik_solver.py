@@ -7,12 +7,25 @@ from droid.robot_ik.arm import FrankaArm
 
 class RobotIKSolver:
     def __init__(self):
-        self.relative_max_joint_delta = np.array([0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3])
+        # Control rate. MUST equal the teleop loop rate (sir.real.droid_teleop
+        # --freq) and is the recorded dataset fps. Commanded EE velocity ~=
+        # per-step delta * loop rate, so the per-step deltas below are DERIVED
+        # from rate-independent velocity ceilings: change control_hz (and --freq
+        # to match) and the top speed is preserved while the motion gets finer
+        # (less jerky). At control_hz=15 these reproduce the prior hardcoded
+        # deltas exactly.
+        self.control_hz = 50
+        # Rate-independent ceilings -- these are the real knobs (tune for snap).
+        self.max_lin_speed = 1.65      # m/s   (Panda TCP spec ceiling ~1.7)
+        self.max_rot_speed = 3.3       # rad/s
+        self.max_joint_speed = 3.0     # rad/s (polymetis clamps joints ~2.075/2.51)
+        self.max_gripper_speed = 3.75  # normalized width per second
+        # Per-control-step deltas derived from the rate (do not hand-edit).
+        self.max_lin_delta = self.max_lin_speed / self.control_hz
+        self.max_rot_delta = self.max_rot_speed / self.control_hz
+        self.relative_max_joint_delta = np.full(7, self.max_joint_speed / self.control_hz)
         self.max_joint_delta = self.relative_max_joint_delta.max()
-        self.max_gripper_delta = 0.25
-        self.max_lin_delta = 0.11
-        self.max_rot_delta = 0.22
-        self.control_hz = 15
+        self.max_gripper_delta = self.max_gripper_speed / self.control_hz
 
         self._arm = FrankaArm()
         self._physics = mjcf.Physics.from_mjcf_model(self._arm.mjcf_model)
