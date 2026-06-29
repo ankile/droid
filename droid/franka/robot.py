@@ -177,6 +177,7 @@ class FrankaRobot:
             "prev_joint_torques_computed_safened": list(robot_state.prev_joint_torques_computed_safened),
             "motor_torques_measured": list(robot_state.motor_torques_measured),
             "motor_torques_external": list(robot_state.motor_torques_external),
+            "ee_wrench": list(robot_state.ee_wrench),
             "prev_controller_latency_ms": robot_state.prev_controller_latency_ms,
             "prev_command_successful": robot_state.prev_command_successful,
         }
