@@ -178,6 +178,12 @@ class FrankaRobot:
             "motor_torques_measured": list(robot_state.motor_torques_measured),
             "motor_torques_external": list(robot_state.motor_torques_external),
             "ee_wrench": list(robot_state.ee_wrench),
+            "m_ee": robot_state.m_ee,
+            "f_x_cee": list(robot_state.f_x_cee),
+            "m_load": robot_state.m_load,
+            "f_x_cload": list(robot_state.f_x_cload),
+            "m_total": robot_state.m_total,
+            "f_x_ctotal": list(robot_state.f_x_ctotal),
             "prev_controller_latency_ms": robot_state.prev_controller_latency_ms,
             "prev_command_successful": robot_state.prev_command_successful,
         }
