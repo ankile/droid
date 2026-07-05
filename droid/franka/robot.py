@@ -14,6 +14,13 @@ from droid.misc.subprocess_utils import run_terminal_command, run_threaded_comma
 from droid.misc.transformations import add_poses, euler_to_quat, pose_diff, quat_to_euler
 from droid.robot_ik.robot_ik_solver import RobotIKSolver
 
+# EE-position hold: a commanded cartesian-velocity norm below this is a
+# HOLD -> regulate the EE back to the pose captured at hold-start
+# (position feedback) instead of integrating 0 velocity, which lets the
+# IK-QP nullspace bias leak into EE motion (droop) over re-anchored steps.
+HOLD_VELOCITY_EPS = 1e-3
+HOLD_POSITION_GAIN = 1.0
+
 
 class FrankaRobot:
     def launch_controller(self):
@@ -32,11 +39,13 @@ class FrankaRobot:
         self._server_launched = True
         time.sleep(5)
 
-    def launch_robot(self):
+    def launch_robot(self, nullspace_reference=None, ee_position_hold=True):
         self._robot = RobotInterface(ip_address="localhost")
         self._gripper = GripperInterface(ip_address="localhost")
         self._max_gripper_width = self._gripper.metadata.max_width
-        self._ik_solver = RobotIKSolver()
+        self._ik_solver = RobotIKSolver(nullspace_reference=nullspace_reference)
+        self._ee_position_hold = ee_position_hold
+        self._hold_pose = None
         self._controller_not_loaded = False
 
     def kill_controller(self):
@@ -44,12 +53,34 @@ class FrankaRobot:
         self._gripper_process.kill()
 
     def update_command(self, command, action_space="cartesian_velocity", gripper_action_space=None, blocking=False):
+        command = self._apply_ee_position_hold(command, action_space)
         action_dict = self.create_action_dict(command, action_space=action_space, gripper_action_space=gripper_action_space)
 
         self.update_joints(action_dict["joint_position"], velocity=False, blocking=blocking)
         self.update_gripper(action_dict["gripper_position"], velocity=False, blocking=blocking)
 
         return action_dict
+
+    def _apply_ee_position_hold(self, command, action_space):
+        """On a (near-)zero cartesian-velocity hold, regulate the EE back to
+        the pose captured at hold-start with a corrective velocity fed into
+        the same IK QP (EE-position feedback), instead of integrating 0
+        velocity. The latter lets the QP nullspace posture bias leak into EE
+        motion over re-anchored steps -> ~cm droop. This holds the EE fixed
+        while the nullspace still centers posture. Any real command clears
+        the hold pose. No-op unless enabled + cartesian_velocity."""
+        if action_space != "cartesian_velocity":
+            return command
+        cmd = np.asarray(command, dtype=float)
+        if not self._ee_position_hold or np.linalg.norm(cmd[:6]) >= HOLD_VELOCITY_EPS:
+            self._hold_pose = None
+            return command
+        cur = np.asarray(self.get_ee_pose(), dtype=float)
+        if self._hold_pose is None:
+            self._hold_pose = cur
+        corr_vel = HOLD_POSITION_GAIN * self._ik_solver.cartesian_delta_to_velocity(
+            pose_diff(self._hold_pose, cur))
+        return np.concatenate([np.clip(corr_vel, -1.0, 1.0), cmd[-1:]]).tolist()
 
     def update_pose(self, command, velocity=False, blocking=False):
         if blocking:

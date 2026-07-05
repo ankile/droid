@@ -5,8 +5,40 @@ from dm_robotics.moma.effectors import arm_effector, cartesian_6d_velocity_effec
 from droid.robot_ik.arm import FrankaArm
 
 
+# Nullspace posture references, selectable per controller-launch via the
+# `nullspace_reference` arg threaded through FrankaRobot.launch_robot ->
+# ServerInterface -> RobotEnv (GPU). On a 0-velocity (hold) command the
+# nullspace bias gain*(ref - q) is the only joint drive, so this choice
+# determines whether the arm droops.
+NULLSPACE_REFERENCES = {
+    # LEGACY config used to collect all pre-fix data. 0 is OUTSIDE the joint
+    # range for j4/j6, so the bias drags the wrist toward an at-limit target
+    # -> the ~5cm hold-time EE droop. Kept to reproduce the data-collection
+    # distribution when deploying policies trained under it.
+    "legacy_zero": [0.0] * 7,
+    # FEASIBLE canonical work posture (robot_env reset_joints) -> no droop,
+    # gentle posture centering.
+    "home": [0.0, -1.0 / 5.0 * np.pi, 0.0, -4.0 / 5.0 * np.pi, 0.0, 3.0 / 5.0 * np.pi, 0.0],
+}
+DEFAULT_NULLSPACE_REFERENCE = "home"
+
+
 class RobotIKSolver:
-    def __init__(self):
+    def __init__(self, nullspace_reference=None):
+        # Resolve the nullspace posture reference: None -> default mode; a
+        # str selects a named mode in NULLSPACE_REFERENCES (KeyError if
+        # unknown, by design); a length-7 sequence is used verbatim.
+        if nullspace_reference is None:
+            nullspace_reference = DEFAULT_NULLSPACE_REFERENCE
+        if isinstance(nullspace_reference, str):
+            self.nullspace_reference_name = nullspace_reference
+            nullspace_ref = list(NULLSPACE_REFERENCES[nullspace_reference])
+        else:
+            self.nullspace_reference_name = "custom"
+            nullspace_ref = list(nullspace_reference)
+            assert len(nullspace_ref) == 7, "nullspace_reference must have 7 entries"
+        print("[RobotIKSolver] nullspace reference: %s = %s"
+              % (self.nullspace_reference_name, nullspace_ref))
         self.relative_max_joint_delta = np.array([0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2])
         self.max_joint_delta = self.relative_max_joint_delta.max()
         self.max_gripper_delta = 0.25
@@ -25,19 +57,10 @@ class RobotIKSolver:
             max_lin_vel=self.max_lin_delta,
             max_rot_vel=self.max_rot_delta,
             joint_velocity_limits=self.relative_max_joint_delta,
-            # Nullspace posture reference = the canonical reset/work posture
-            # (robot_env.py reset_joints = [0, -pi/5, 0, -4pi/5, 0, 3pi/5, 0]),
-            # a FEASIBLE in-range pose. The previous [0]*7 was infeasible for
-            # j4 (~[-2.97,-0.17]) and j6 (~[0.08,3.65]) -- 0 is outside those
-            # ranges -- so the nullspace bias gain*(ref-q) perpetually dragged
-            # the wrist toward an at-limit target and leaked past the
-            # EE-preserving projection, drooping the EE ~5cm on a 0-velocity
-            # (hold) command. Steering toward the actual work posture keeps the
-            # wrist ~put (no droop) and causes ~no reconfiguration when holding
-            # near where the operator works, while still centering posture.
-            nullspace_joint_position_reference=[
-                0.0, -1.0 / 5.0 * np.pi, 0.0, -4.0 / 5.0 * np.pi, 0.0, 3.0 / 5.0 * np.pi, 0.0
-            ],
+            # Selectable nullspace posture reference (resolved in __init__ from
+            # the nullspace_reference arg; see NULLSPACE_REFERENCES). Default
+            # "home" fixes the hold-time droop; "legacy_zero" is the old [0]*7.
+            nullspace_joint_position_reference=nullspace_ref,
             nullspace_gain=0.025,
             regularization_weight=1e-2,
             enable_joint_position_limits=True,
