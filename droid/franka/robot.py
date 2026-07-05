@@ -14,13 +14,6 @@ from droid.misc.subprocess_utils import run_terminal_command, run_threaded_comma
 from droid.misc.transformations import add_poses, euler_to_quat, pose_diff, quat_to_euler
 from droid.robot_ik.robot_ik_solver import RobotIKSolver
 
-# EE-position hold: a commanded cartesian-velocity norm below this is a
-# HOLD -> regulate the EE back to the pose captured at hold-start
-# (position feedback) instead of integrating 0 velocity, which lets the
-# IK-QP nullspace bias leak into EE motion (droop) over re-anchored steps.
-HOLD_VELOCITY_EPS = 1e-3
-HOLD_POSITION_GAIN = 1.0
-
 
 class FrankaRobot:
     def launch_controller(self):
@@ -62,24 +55,27 @@ class FrankaRobot:
         return action_dict
 
     def _apply_ee_position_hold(self, command, action_space):
-        """On a (near-)zero cartesian-velocity hold, regulate the EE back to
-        the pose captured at hold-start with a corrective velocity fed into
-        the same IK QP (EE-position feedback), instead of integrating 0
-        velocity. The latter lets the QP nullspace posture bias leak into EE
-        motion over re-anchored steps -> ~cm droop. This holds the EE fixed
-        while the nullspace still centers posture. Any real command clears
-        the hold pose. No-op unless enabled + cartesian_velocity."""
-        if action_space != "cartesian_velocity":
+        """When the caller commands EXACTLY zero cartesian velocity (a hold),
+        regulate the EE back to the pose captured when the hold began, using
+        the same position feedback as the cartesian_position path (pose_diff
+        -> cartesian_delta_to_velocity fed into the QP). This corrects the
+        IK-QP nullspace leak that would otherwise accumulate into droop over
+        the re-anchored steps, while keeping nullspace posture centering.
+        Any nonzero arm velocity clears the hold and passes through unchanged
+        -- there is NO magnitude threshold or gain, so it can never affect a
+        commanded motion, however slow (teleop sends action[:6]=0.0 exactly on
+        no input). No-op unless enabled + cartesian_velocity."""
+        if action_space != "cartesian_velocity" or not self._ee_position_hold:
+            self._hold_pose = None
             return command
         cmd = np.asarray(command, dtype=float)
-        if not self._ee_position_hold or np.linalg.norm(cmd[:6]) >= HOLD_VELOCITY_EPS:
+        if cmd[:6].any():
             self._hold_pose = None
             return command
         cur = np.asarray(self.get_ee_pose(), dtype=float)
         if self._hold_pose is None:
             self._hold_pose = cur
-        corr_vel = HOLD_POSITION_GAIN * self._ik_solver.cartesian_delta_to_velocity(
-            pose_diff(self._hold_pose, cur))
+        corr_vel = self._ik_solver.cartesian_delta_to_velocity(pose_diff(self._hold_pose, cur))
         return np.concatenate([np.clip(corr_vel, -1.0, 1.0), cmd[-1:]]).tolist()
 
     def update_pose(self, command, velocity=False, blocking=False):
