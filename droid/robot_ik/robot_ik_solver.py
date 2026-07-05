@@ -25,7 +25,19 @@ class RobotIKSolver:
             max_lin_vel=self.max_lin_delta,
             max_rot_vel=self.max_rot_delta,
             joint_velocity_limits=self.relative_max_joint_delta,
-            nullspace_joint_position_reference=[0] * 7,
+            # Nullspace posture reference = the canonical reset/work posture
+            # (robot_env.py reset_joints = [0, -pi/5, 0, -4pi/5, 0, 3pi/5, 0]),
+            # a FEASIBLE in-range pose. The previous [0]*7 was infeasible for
+            # j4 (~[-2.97,-0.17]) and j6 (~[0.08,3.65]) -- 0 is outside those
+            # ranges -- so the nullspace bias gain*(ref-q) perpetually dragged
+            # the wrist toward an at-limit target and leaked past the
+            # EE-preserving projection, drooping the EE ~5cm on a 0-velocity
+            # (hold) command. Steering toward the actual work posture keeps the
+            # wrist ~put (no droop) and causes ~no reconfiguration when holding
+            # near where the operator works, while still centering posture.
+            nullspace_joint_position_reference=[
+                0.0, -1.0 / 5.0 * np.pi, 0.0, -4.0 / 5.0 * np.pi, 0.0, 3.0 / 5.0 * np.pi, 0.0
+            ],
             nullspace_gain=0.025,
             regularization_weight=1e-2,
             enable_joint_position_limits=True,
