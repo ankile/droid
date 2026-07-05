@@ -32,13 +32,11 @@ class FrankaRobot:
         self._server_launched = True
         time.sleep(5)
 
-    def launch_robot(self, nullspace_reference=None, ee_position_hold=True):
+    def launch_robot(self):
         self._robot = RobotInterface(ip_address="localhost")
         self._gripper = GripperInterface(ip_address="localhost")
         self._max_gripper_width = self._gripper.metadata.max_width
-        self._ik_solver = RobotIKSolver(nullspace_reference=nullspace_reference)
-        self._ee_position_hold = ee_position_hold
-        self._hold_pose = None
+        self._ik_solver = RobotIKSolver()
         self._controller_not_loaded = False
 
     def kill_controller(self):
@@ -46,37 +44,12 @@ class FrankaRobot:
         self._gripper_process.kill()
 
     def update_command(self, command, action_space="cartesian_velocity", gripper_action_space=None, blocking=False):
-        command = self._apply_ee_position_hold(command, action_space)
         action_dict = self.create_action_dict(command, action_space=action_space, gripper_action_space=gripper_action_space)
 
         self.update_joints(action_dict["joint_position"], velocity=False, blocking=blocking)
         self.update_gripper(action_dict["gripper_position"], velocity=False, blocking=blocking)
 
         return action_dict
-
-    def _apply_ee_position_hold(self, command, action_space):
-        """When the caller commands EXACTLY zero cartesian velocity (a hold),
-        regulate the EE back to the pose captured when the hold began, using
-        the same position feedback as the cartesian_position path (pose_diff
-        -> cartesian_delta_to_velocity fed into the QP). This corrects the
-        IK-QP nullspace leak that would otherwise accumulate into droop over
-        the re-anchored steps, while keeping nullspace posture centering.
-        Any nonzero arm velocity clears the hold and passes through unchanged
-        -- there is NO magnitude threshold or gain, so it can never affect a
-        commanded motion, however slow (teleop sends action[:6]=0.0 exactly on
-        no input). No-op unless enabled + cartesian_velocity."""
-        if action_space != "cartesian_velocity" or not self._ee_position_hold:
-            self._hold_pose = None
-            return command
-        cmd = np.asarray(command, dtype=float)
-        if cmd[:6].any():
-            self._hold_pose = None
-            return command
-        cur = np.asarray(self.get_ee_pose(), dtype=float)
-        if self._hold_pose is None:
-            self._hold_pose = cur
-        corr_vel = self._ik_solver.cartesian_delta_to_velocity(pose_diff(self._hold_pose, cur))
-        return np.concatenate([np.clip(corr_vel, -1.0, 1.0), cmd[-1:]]).tolist()
 
     def update_pose(self, command, velocity=False, blocking=False):
         if blocking:
