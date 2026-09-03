@@ -13,27 +13,37 @@ readme = "README.md"
 requires-python = ">=3.7"
 keywords = ["robotics"]
 dependencies = [
+    # Runtime imports of the modules SIR actually uses (robot_env, camera_utils,
+    # franka, robot_ik, misc): unpinned so `droid` can be locked INSIDE the SIR uv
+    # project (its `robot` extra) instead of being hand-layered with --no-deps.
+    # The upstream hard pins (mujoco==2.3.2, opencv==4.6, protobuf==3.20.1, ...)
+    # conflict with lerobot/robosuite and live in the `full` extra below.
     "boto3",
-    "customtkinter",
-    "dm-control==1.0.5",
     "gym",
     "h5py",
     "imageio",
     "matplotlib",
-    "mujoco==2.3.2",
-    "open3d",
-    "opencv-python==4.6.0.66",
-    "opencv-contrib-python==4.6.0.66",
+    "numpy",
+    "opencv-python",
     "Pillow",
-    "protobuf==3.20.1",
-    "psutil",
-    "pyrallis",
     "scipy",
     "tqdm",
     "zerorpc",
 ]
 
 [project.optional-dependencies]
+# Upstream droid-dataset/droid pins, kept for standalone (non-SIR) installs.
+full = [
+    "customtkinter",
+    "dm-control==1.0.5",
+    "mujoco==2.3.2",
+    "open3d",
+    "opencv-python==4.6.0.66",
+    "opencv-contrib-python==4.6.0.66",
+    "protobuf==3.20.1",
+    "psutil",
+    "pyrallis",
+]
 dev = [
     "black[jupyter]",
     "ipython",
