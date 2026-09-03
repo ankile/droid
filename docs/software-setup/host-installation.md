@@ -159,7 +159,7 @@ We will start by updating the robot client config file. To do so go into `fairo/
 
 Next we will update the robot model config file. To do so go into `fairo/polymetis/polymetis/conf/robot_model` and delete the existing `franka_panda.yaml` file. Replace this file with `franka_panda[robot_name].yaml` from the linked config files folder. Rename this file to `franka_panda.yaml`. 
 
-Update the IP parameters in `droid/misc/parameters.py`, in particular set `robot_ip` to match the IP address of your robot and `nuc_ip` to match the IP address of your NUC. Also set the `sudo_password` to match your machine's sudo password (sudo access is required to launch the robot). Finally update the `robot_type` parameter to `panda` or `fr3` depending on which robot you are using. 
+Station parameters are NOT edited in `droid/misc/parameters.py` in this fork. Create `~/.config/droid/station.env` (mode 600) on each machine with one `KEY=VALUE` per line: `DROID_ROBOT_IP` (your robot), `DROID_NUC_IP` (your NUC), `DROID_ROBOT_TYPE` (`panda` or `fr3`), `DROID_ROBOT_SERIAL_NUMBER`, and on the NUC only `DROID_SUDO_PASSWORD` (sudo access is required to launch the robot). The full key list and precedence rules are in `droid/misc/station_env.py`; `parameters.py` reads the file at import, so the checkout stays clean in `git status`. 
 
 If you choose to install miniconda instead of anaconda in previous steps of this guide you will need to make the following edits:
 
