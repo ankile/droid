@@ -81,4 +81,5 @@ py_version = "all"
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["droid*"]
 exclude = ["cache"]
